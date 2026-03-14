@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(wc -l \"c:\\\\Users\\\\mo7md\\\\OneDrive\\\\Desktop\\\\Athkari-Full-Project-v3\\\\athkari-mobile\\\\migrations\"/*.sql)",
+      "Bash(find /c/Users/mo7md/OneDrive/Desktop/Athkari-Full-Project-v3/athkari-mobile/services -type f -name *.ts*)",
+      "Bash(find /c/Users/mo7md/OneDrive/Desktop/Athkari-Full-Project-v3/athkari-mobile/components -type f -name *.tsx -o -name *.ts)"
+    ]
+  }
+}

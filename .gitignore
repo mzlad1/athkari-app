@@ -1,0 +1,38 @@
+# Dependencies
+node_modules/
+
+# Build / cache outputs
+.expo/
+.expo-shared/
+.web-build/
+dist/
+build/
+.cache/
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# TypeScript
+*.tsbuildinfo
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Generated native folders (Expo prebuild)
+/android
+/ios
+
+# Ignore embedded admin app as requested
+athkari-admin/

@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ls /c/Users/mo7md/OneDrive/Desktop/Athkari-Full-Project-v3/athkari-mobile/hooks/*.ts*)",
+      "Bash(xargs -I {} basename {})",
+      "Bash(ls -la /c/Users/mo7md/OneDrive/Desktop/Athkari-Full-Project-v3/athkari-mobile/app/\\\\\\(parent-dashboard\\\\\\)/)",
+      "Bash(cat \"/c/Users/mo7md/OneDrive/Desktop/Athkari-Full-Project-v3/athkari-mobile/app/\\(parent-dashboard\\)/kids.tsx\")",
+      "Bash(xargs head:*)",
+      "Bash(npx expo:*)"
+    ]
+  }
+}
