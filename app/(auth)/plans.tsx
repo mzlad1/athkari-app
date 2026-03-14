@@ -16,6 +16,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { usePlans } from "@/hooks/usePlans";
 import { plansService } from "@/services/plans";
 import { subscriptionService } from "@/services/subscriptions";
+import { supabase } from "@/services/supabase";
 import { LinearGradient } from "expo-linear-gradient";
 import { useToast } from "@/hooks/useToast";
 import { Toast } from "@/components/ui";
@@ -259,6 +260,13 @@ export default function PlansScreen() {
   const { family, user, refreshFamily } = useAuth();
   const { toast, showToast } = useToast();
 
+  // Ensure family is loaded (race condition after register)
+  useEffect(() => {
+    if (user && !family) {
+      refreshFamily();
+    }
+  }, [user, family]);
+
   // Auto-select popular plan
   useEffect(() => {
     if (plans.length > 0 && selectedPlanId === null) {
@@ -304,6 +312,8 @@ export default function PlansScreen() {
     return price;
   };
 
+  const trialDays = selectedPlan?.trial_days ?? 0;
+
   const handleStartTrial = async () => {
     if (!selectedPlan) {
       showToast(
@@ -313,9 +323,24 @@ export default function PlansScreen() {
       return;
     }
 
-    // If no family yet (first-time signup), skip payment and proceed
-    if (!family) {
-      router.push("/(auth)/add-kid");
+    // If family not loaded yet, try refreshing
+    let currentFamily = family;
+    if (!currentFamily && user) {
+      await refreshFamily();
+      // Fetch directly from DB since React state won't update in this closure
+      const { data } = await supabase
+        .from("families")
+        .select("*")
+        .eq("auth_user_id", user.id)
+        .single();
+      currentFamily = data;
+    }
+
+    if (!currentFamily) {
+      showToast(
+        isRTL ? "حدث خطأ في تحميل الحساب" : "Failed to load account",
+        "error",
+      );
       return;
     }
 
@@ -329,11 +354,11 @@ export default function PlansScreen() {
 
       const result = await subscriptionService.purchase(
         {
-          familyId: family.id,
+          familyId: currentFamily.id,
           planId: selectedPlan.id,
           billingCycle: annual ? "annual" : "monthly",
           priceAmount: finalPrice,
-          email: family.parent_email || user?.email || "",
+          email: currentFamily.parent_email || user?.email || "",
           promoCode: promoResult?.valid ? promoCode.trim() : undefined,
         },
         "stripe",
@@ -348,9 +373,13 @@ export default function PlansScreen() {
         // Refresh family data to pick up new billing status
         await refreshFamily();
         showToast(
-          isRTL
-            ? "تم الاشتراك بنجاح! ٧ أيام مجانية"
-            : "Subscribed! 7 days free trial started",
+          trialDays > 0
+            ? isRTL
+              ? `تم الاشتراك بنجاح! ${trialDays} أيام مجانية`
+              : `Subscribed! ${trialDays}-day free trial started`
+            : isRTL
+              ? "تم الاشتراك بنجاح!"
+              : "Subscribed successfully!",
           "success",
         );
         // Short delay so user sees the toast
@@ -364,10 +393,7 @@ export default function PlansScreen() {
       }
     } catch (err: any) {
       console.error("Purchase error:", err);
-      showToast(
-        isRTL ? "حدث خطأ في الدفع" : "Payment error occurred",
-        "error",
-      );
+      showToast(isRTL ? "حدث خطأ في الدفع" : "Payment error occurred", "error");
     } finally {
       setPurchasing(false);
     }
@@ -432,14 +458,16 @@ export default function PlansScreen() {
           <Text style={P.title}>
             {isRTL ? "اختر خطتك" : "Choose Your Plan"}
           </Text>
-          <View style={P.trialBanner}>
-            <Text style={P.trialBannerText}>
-              🎁{" "}
-              {isRTL
-                ? "٧ أيام مجاناً لجميع الخطط!"
-                : "7 days free on all plans!"}
-            </Text>
-          </View>
+          {trialDays > 0 && (
+            <View style={P.trialBanner}>
+              <Text style={P.trialBannerText}>
+                🎁{" "}
+                {isRTL
+                  ? `${trialDays} أيام مجاناً!`
+                  : `${trialDays} days free trial!`}
+              </Text>
+            </View>
+          )}
         </View>
 
         {/* Billing toggle */}
@@ -562,9 +590,13 @@ export default function PlansScreen() {
               </View>
             </View>
             <Text style={P.priceSummaryTrial}>
-              {isRTL
-                ? "لن يتم الخصم حتى انتهاء الفترة التجريبية (٧ أيام)"
-                : "You won't be charged until your 7-day trial ends"}
+              {trialDays > 0
+                ? isRTL
+                  ? `لن يتم الخصم حتى انتهاء الفترة التجريبية (${trialDays} أيام)`
+                  : `You won't be charged until your ${trialDays}-day trial ends`
+                : isRTL
+                  ? "سيتم الخصم فوراً عند الاشتراك"
+                  : "You'll be charged immediately upon subscribing"}
             </Text>
           </View>
         )}
@@ -674,7 +706,13 @@ export default function PlansScreen() {
               </View>
             ) : (
               <Text style={P.ctaText}>
-                {isRTL ? "🚀 ابدأ ٧ أيام مجاناً" : "🚀 Start 7 Days Free"}
+                {trialDays > 0
+                  ? isRTL
+                    ? `🚀 ابدأ ${trialDays} أيام مجاناً`
+                    : `🚀 Start ${trialDays}-Day Free Trial`
+                  : isRTL
+                    ? "🚀 اشترك الآن"
+                    : "🚀 Subscribe Now"}
               </Text>
             )}
           </LinearGradient>
@@ -688,15 +726,6 @@ export default function PlansScreen() {
               : "Secure payment via Stripe · Cancel anytime"}
           </Text>
         </View>
-
-        <Pressable
-          style={P.skipBtn}
-          onPress={() => router.push("/(auth)/add-kid")}
-        >
-          <Text style={P.skipText}>
-            {isRTL ? "تخطي الآن →" : "Skip for now →"}
-          </Text>
-        </Pressable>
 
         <View style={{ height: 40 }} />
       </ScrollView>
@@ -1045,7 +1074,4 @@ const P = StyleSheet.create({
     fontWeight: "700",
     color: "#A8A29E",
   },
-
-  skipBtn: { alignItems: "center", paddingVertical: 14, marginTop: 4 },
-  skipText: { fontSize: 13, fontWeight: "700", color: "#A8A29E" },
 });

@@ -6,13 +6,16 @@ import {
   StyleSheet,
   ActivityIndicator,
   Alert,
+  RefreshControl,
 } from "react-native";
 import { useState, useEffect } from "react";
+import { Linking } from "react-native";
 import { useLang } from "@/contexts/LangContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { LinearGradient } from "expo-linear-gradient";
 import { usePlans } from "@/hooks/usePlans";
 import { subscriptionService } from "@/services/subscriptions";
+import { stripeService } from "@/services/stripe";
 import { useToast } from "@/hooks/useToast";
 import { Toast } from "@/components/ui";
 
@@ -50,7 +53,7 @@ type Tab = "current" | "change";
 export default function PlansScreen() {
   const { lang } = useLang();
   const isRTL = lang === "ar";
-  const { family, refreshFamily } = useAuth();
+  const { family, kids, refreshFamily } = useAuth();
   const { plans, loading } = usePlans();
   const { toast, showToast } = useToast();
 
@@ -58,6 +61,15 @@ export default function PlansScreen() {
   const [selectedPlanId, setSelectedPlanId] = useState<number | null>(null);
   const [isAnnual, setIsAnnual] = useState(false);
   const [processing, setProcessing] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [invoices, setInvoices] = useState<any[]>([]);
+  const [paymentMethods, setPaymentMethods] = useState<any[]>([]);
+  const [upcomingInvoice, setUpcomingInvoice] = useState<{
+    amount: number;
+    currency: string;
+    next_payment_date: number | null;
+  } | null>(null);
+  const [loadingBilling, setLoadingBilling] = useState(false);
   const [subStatus, setSubStatus] = useState<{
     isActive: boolean;
     status: string;
@@ -82,26 +94,68 @@ export default function PlansScreen() {
     }
   }, [family]);
 
+  // Load invoices, payment methods & upcoming invoice
+  useEffect(() => {
+    if (family?.id && family?.stripe_customer_id) {
+      setLoadingBilling(true);
+      Promise.all([
+        stripeService.getInvoices(family.id),
+        stripeService.getPaymentMethods(family.id),
+        stripeService.getUpcomingInvoice(family.id),
+      ])
+        .then(([invRes, pmRes, upRes]) => {
+          setInvoices(invRes.invoices || []);
+          setPaymentMethods(pmRes.payment_methods || []);
+          setUpcomingInvoice(upRes.upcoming_invoice || null);
+        })
+        .finally(() => setLoadingBilling(false));
+    }
+  }, [family?.id, family?.stripe_customer_id]);
+
+  const onRefresh = async () => {
+    if (!family?.id) return;
+    setRefreshing(true);
+    try {
+      await refreshFamily();
+      const status = await subscriptionService.checkSubscriptionDB(family.id);
+      setSubStatus(status);
+      if (family.stripe_customer_id) {
+        const [invRes, pmRes, upRes] = await Promise.all([
+          stripeService.getInvoices(family.id),
+          stripeService.getPaymentMethods(family.id),
+          stripeService.getUpcomingInvoice(family.id),
+        ]);
+        setInvoices(invRes.invoices || []);
+        setPaymentMethods(pmRes.payment_methods || []);
+        setUpcomingInvoice(upRes.upcoming_invoice || null);
+      }
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
   const currentPlan = plans.find((p) => p.id === family?.plan_id);
   const billingStatus = subStatus?.status || family?.billing_status || "trial";
   const isActive = billingStatus === "active" || billingStatus === "trial";
   const isTrial = billingStatus === "trial";
 
-  const statusLabel = {
-    trial: isRTL ? "فترة تجريبية" : "Trial",
-    active: isRTL ? "نشط" : "Active",
-    past_due: isRTL ? "متأخر" : "Past Due",
-    churned: isRTL ? "منتهي" : "Expired",
-    suspended: isRTL ? "معلق" : "Suspended",
-  }[billingStatus] || billingStatus;
+  const statusLabel =
+    {
+      trial: isRTL ? "فترة تجريبية" : "Trial",
+      active: isRTL ? "نشط" : "Active",
+      past_due: isRTL ? "متأخر" : "Past Due",
+      churned: isRTL ? "منتهي" : "Expired",
+      suspended: isRTL ? "معلق" : "Suspended",
+    }[billingStatus] || billingStatus;
 
-  const statusColor = {
-    trial: C.amber,
-    active: C.green,
-    past_due: C.orange,
-    churned: C.red,
-    suspended: C.red,
-  }[billingStatus] || C.inkFaint;
+  const statusColor =
+    {
+      trial: C.amber,
+      active: C.green,
+      past_due: C.orange,
+      churned: C.red,
+      suspended: C.red,
+    }[billingStatus] || C.inkFaint;
 
   const formatDate = (dateStr: string | null | undefined) => {
     if (!dateStr) return "—";
@@ -157,7 +211,9 @@ export default function PlansScreen() {
 
         if (result.success) {
           await refreshFamily();
-          const status = await subscriptionService.checkSubscriptionDB(family.id);
+          const status = await subscriptionService.checkSubscriptionDB(
+            family.id,
+          );
           setSubStatus(status);
           setTab("current");
           showToast(
@@ -166,8 +222,7 @@ export default function PlansScreen() {
           );
         } else {
           showToast(
-            result.error ||
-              (isRTL ? "فشلت العملية" : "Operation failed"),
+            result.error || (isRTL ? "فشلت العملية" : "Operation failed"),
             "error",
           );
         }
@@ -198,10 +253,7 @@ export default function PlansScreen() {
           "success",
         );
       } else {
-        showToast(
-          isRTL ? "فشل تحديث الخطة" : "Failed to update plan",
-          "error",
-        );
+        showToast(isRTL ? "فشل تحديث الخطة" : "Failed to update plan", "error");
       }
     } catch (err: any) {
       showToast(err.message || "Error", "error");
@@ -214,8 +266,8 @@ export default function PlansScreen() {
     Alert.alert(
       isRTL ? "إلغاء الاشتراك" : "Cancel Subscription",
       isRTL
-        ? "هل أنت متأكد؟ ستبقى لديك صلاحية حتى نهاية الفترة الحالية."
-        : "Are you sure? You'll keep access until the end of your current period.",
+        ? "هل أنت متأكد؟ ستبقى لديك صلاحية حتى نهاية الفترة الحالية. لن يتم تحصيل أي مبلغ إضافي."
+        : "Are you sure? You'll keep access until the end of your current billing period. No further charges will be made.",
       [
         { text: isRTL ? "لا" : "No", style: "cancel" },
         {
@@ -225,7 +277,9 @@ export default function PlansScreen() {
             if (!family?.id) return;
             setProcessing(true);
             try {
-              const ok = await subscriptionService.cancelSubscription(family.id);
+              const ok = await subscriptionService.cancelSubscription(
+                family.id,
+              );
               if (ok) {
                 await refreshFamily();
                 const status = await subscriptionService.checkSubscriptionDB(
@@ -255,29 +309,6 @@ export default function PlansScreen() {
     );
   };
 
-  const handleRestore = async () => {
-    setProcessing(true);
-    try {
-      const restored = await subscriptionService.restore();
-      if (restored) {
-        await refreshFamily();
-        showToast(
-          isRTL ? "تم استعادة المشتريات!" : "Purchases restored!",
-          "success",
-        );
-      } else {
-        showToast(
-          isRTL ? "لا توجد مشتريات سابقة" : "No previous purchases found",
-          "error",
-        );
-      }
-    } catch {
-      showToast(isRTL ? "فشلت الاستعادة" : "Restore failed", "error");
-    } finally {
-      setProcessing(false);
-    }
-  };
-
   return (
     <View style={{ flex: 1, backgroundColor: C.cream }}>
       <Toast toast={toast} />
@@ -291,9 +322,7 @@ export default function PlansScreen() {
       >
         <Text style={S.headerWatermark}>💎</Text>
         <Text style={S.headerEmoji}>💳</Text>
-        <Text style={S.headerTitle}>
-          {isRTL ? "الاشتراك" : "Subscription"}
-        </Text>
+        <Text style={S.headerTitle}>{isRTL ? "الاشتراك" : "Subscription"}</Text>
         <Text style={S.headerSub}>
           {isRTL ? "إدارة خطتك والدفع" : "Manage your plan & billing"}
         </Text>
@@ -348,6 +377,14 @@ export default function PlansScreen() {
         style={{ flex: 1 }}
         contentContainerStyle={{ padding: 20, paddingBottom: 40 }}
         showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            colors={[C.violet]}
+            tintColor={C.violet}
+          />
+        }
       >
         {loading ? (
           <View style={S.loadingWrap}>
@@ -359,9 +396,7 @@ export default function PlansScreen() {
             {/* Status card */}
             <View style={S.statusCard}>
               <View style={S.statusRow}>
-                <View
-                  style={[S.statusDot, { backgroundColor: statusColor }]}
-                />
+                <View style={[S.statusDot, { backgroundColor: statusColor }]} />
                 <Text style={[S.statusLabel, { color: statusColor }]}>
                   {statusLabel}
                 </Text>
@@ -391,9 +426,23 @@ export default function PlansScreen() {
                         : "/month"}
                   </Text>
                   <Text style={S.currentPlanKids}>
-                    {currentPlan.max_kids}{" "}
-                    {isRTL ? "أطفال كحد أقصى" : "kids max"}
+                    👶 {kids.length}/{currentPlan.max_kids}{" "}
+                    {isRTL ? "أطفال" : "kids"}
                   </Text>
+                  {kids.length >= currentPlan.max_kids && (
+                    <Text
+                      style={{
+                        fontSize: 11,
+                        fontWeight: "700",
+                        color: C.red,
+                        marginTop: 4,
+                      }}
+                    >
+                      {isRTL
+                        ? "وصلت للحد الأقصى — يرجى ترقية الخطة"
+                        : "Limit reached — upgrade plan for more"}
+                    </Text>
+                  )}
                 </View>
               ) : (
                 <View style={S.currentPlanInfo}>
@@ -415,9 +464,7 @@ export default function PlansScreen() {
               </Text>
 
               <View style={S.detailRow}>
-                <Text style={S.detailLabel}>
-                  {isRTL ? "الدورة" : "Cycle"}
-                </Text>
+                <Text style={S.detailLabel}>{isRTL ? "الدورة" : "Cycle"}</Text>
                 <Text style={S.detailValue}>
                   {family?.billing_cycle === "annual"
                     ? isRTL
@@ -435,9 +482,7 @@ export default function PlansScreen() {
                     {isRTL ? "نهاية التجربة" : "Trial Ends"}
                   </Text>
                   <Text style={[S.detailValue, { color: C.amber }]}>
-                    {formatDate(
-                      subStatus?.trialEnd || family?.trial_end,
-                    )}
+                    {formatDate(subStatus?.trialEnd || family?.trial_end)}
                   </Text>
                 </View>
               )}
@@ -448,11 +493,27 @@ export default function PlansScreen() {
                 </Text>
                 <Text style={S.detailValue}>
                   {formatDate(
-                    subStatus?.currentPeriodEnd ||
-                      family?.current_period_end,
+                    subStatus?.currentPeriodEnd || family?.current_period_end,
                   )}
                 </Text>
               </View>
+
+              {upcomingInvoice && (
+                <View style={S.detailRow}>
+                  <Text style={S.detailLabel}>
+                    {isRTL ? "المبلغ القادم" : "Next Charge"}
+                  </Text>
+                  <Text
+                    style={[
+                      S.detailValue,
+                      { color: C.orange, fontWeight: "900" },
+                    ]}
+                  >
+                    ${upcomingInvoice.amount.toFixed(2)}{" "}
+                    {upcomingInvoice.currency?.toUpperCase()}
+                  </Text>
+                </View>
+              )}
 
               <View style={[S.detailRow, { borderBottomWidth: 0 }]}>
                 <Text style={S.detailLabel}>
@@ -474,14 +535,12 @@ export default function PlansScreen() {
                 <Text style={S.featuresTitle}>
                   {isRTL ? "✅ مميزات خطتك:" : "✅ Your Plan Includes:"}
                 </Text>
-                {(currentPlan.features || []).map(
-                  (f: string, i: number) => (
-                    <View key={i} style={S.featureRow}>
-                      <Text style={S.featureCheck}>✓</Text>
-                      <Text style={S.featureText}>{f}</Text>
-                    </View>
-                  ),
-                )}
+                {(currentPlan.features || []).map((f: string, i: number) => (
+                  <View key={i} style={S.featureRow}>
+                    <Text style={S.featureCheck}>✓</Text>
+                    <Text style={S.featureText}>{f}</Text>
+                  </View>
+                ))}
               </View>
             )}
 
@@ -523,50 +582,176 @@ export default function PlansScreen() {
                 </Pressable>
               )}
 
-              <Pressable
-                style={({ pressed }) => [
-                  S.actionBtn,
-                  { backgroundColor: "#F5F5F4" },
-                  pressed && { opacity: 0.7 },
-                ]}
-                onPress={handleRestore}
-                disabled={processing}
-              >
-                <Text style={[S.actionBtnText, { color: C.inkMid }]}>
-                  {processing
-                    ? "..."
-                    : isRTL
-                      ? "🔄 استعادة المشتريات"
-                      : "🔄 Restore Purchases"}
-                </Text>
-              </Pressable>
-
               {isActive && family?.stripe_subscription_id && (
                 <Pressable
                   style={({ pressed }) => [
-                    S.actionBtn,
-                    { backgroundColor: C.redSoft },
+                    S.cancelBtn,
                     pressed && { opacity: 0.7 },
                   ]}
                   onPress={handleCancel}
                   disabled={processing}
                 >
-                  <Text style={[S.actionBtnText, { color: C.red }]}>
-                    {isRTL ? "إلغاء الاشتراك" : "Cancel Subscription"}
+                  <Text style={S.cancelBtnText}>
+                    {processing
+                      ? "..."
+                      : isRTL
+                        ? "إلغاء الاشتراك"
+                        : "Cancel Subscription"}
+                  </Text>
+                  <Text style={S.cancelBtnSub}>
+                    {isRTL
+                      ? "ستبقى الخطة نشطة حتى نهاية الفترة"
+                      : "Plan stays active until period end"}
                   </Text>
                 </Pressable>
               )}
             </View>
+
+            {/* ── Payment Methods ── */}
+            {family?.stripe_customer_id && (
+              <View style={S.sectionCard}>
+                <Text style={S.sectionTitle}>
+                  {isRTL ? "💳 طرق الدفع" : "💳 Payment Methods"}
+                </Text>
+                {loadingBilling ? (
+                  <ActivityIndicator
+                    size="small"
+                    color={C.violet}
+                    style={{ paddingVertical: 16 }}
+                  />
+                ) : paymentMethods.length === 0 ? (
+                  <Text style={S.emptyText}>
+                    {isRTL
+                      ? "لا توجد طرق دفع محفوظة"
+                      : "No saved payment methods"}
+                  </Text>
+                ) : (
+                  paymentMethods.map((pm) => (
+                    <View key={pm.id} style={S.pmRow}>
+                      <View style={S.pmIconWrap}>
+                        <Text style={{ fontSize: 22 }}>
+                          {pm.brand === "visa"
+                            ? "💙"
+                            : pm.brand === "mastercard"
+                              ? "🧡"
+                              : pm.brand === "amex"
+                                ? "💚"
+                                : "💳"}
+                        </Text>
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={S.pmBrand}>
+                          {pm.brand.charAt(0).toUpperCase() + pm.brand.slice(1)}{" "}
+                          •••• {pm.last4}
+                        </Text>
+                        <Text style={S.pmExpiry}>
+                          {isRTL ? "تنتهي" : "Expires"} {pm.exp_month}/
+                          {pm.exp_year}
+                        </Text>
+                      </View>
+                      {pm.is_default && (
+                        <View style={S.defaultBadge}>
+                          <Text style={S.defaultBadgeText}>
+                            {isRTL ? "الأساسية" : "Default"}
+                          </Text>
+                        </View>
+                      )}
+                    </View>
+                  ))
+                )}
+              </View>
+            )}
+
+            {/* ── Invoices / Billing History ── */}
+            {family?.stripe_customer_id && (
+              <View style={S.sectionCard}>
+                <Text style={S.sectionTitle}>
+                  {isRTL ? "🧾 سجل الفواتير" : "🧾 Billing History"}
+                </Text>
+                {loadingBilling ? (
+                  <ActivityIndicator
+                    size="small"
+                    color={C.violet}
+                    style={{ paddingVertical: 16 }}
+                  />
+                ) : invoices.length === 0 ? (
+                  <Text style={S.emptyText}>
+                    {isRTL ? "لا توجد فواتير بعد" : "No invoices yet"}
+                  </Text>
+                ) : (
+                  invoices.map((inv) => {
+                    const date = new Date(inv.created * 1000);
+                    const dateStr = date.toLocaleDateString(
+                      isRTL ? "ar-SA" : "en-US",
+                      { year: "numeric", month: "short", day: "numeric" },
+                    );
+                    const invStatus = inv.status || "unknown";
+                    const invColor =
+                      invStatus === "paid"
+                        ? C.green
+                        : invStatus === "open"
+                          ? C.amber
+                          : C.red;
+
+                    return (
+                      <Pressable
+                        key={inv.id}
+                        style={S.invoiceRow}
+                        onPress={() => {
+                          const url = inv.hosted_invoice_url || inv.invoice_pdf;
+                          if (url) Linking.openURL(url);
+                        }}
+                      >
+                        <View style={{ flex: 1 }}>
+                          <Text style={S.invoiceNumber}>
+                            {inv.number || inv.id.slice(-8).toUpperCase()}
+                          </Text>
+                          <Text style={S.invoiceDate}>{dateStr}</Text>
+                        </View>
+                        <View style={{ alignItems: "flex-end", gap: 4 }}>
+                          <Text style={S.invoiceAmount}>
+                            ${inv.amount.toFixed(2)}{" "}
+                            {inv.currency?.toUpperCase()}
+                          </Text>
+                          <View
+                            style={[
+                              S.invoiceStatusBadge,
+                              { backgroundColor: invColor + "20" },
+                            ]}
+                          >
+                            <Text
+                              style={[S.invoiceStatusText, { color: invColor }]}
+                            >
+                              {invStatus === "paid"
+                                ? isRTL
+                                  ? "مدفوعة"
+                                  : "Paid"
+                                : invStatus === "open"
+                                  ? isRTL
+                                    ? "مفتوحة"
+                                    : "Open"
+                                  : invStatus === "draft"
+                                    ? isRTL
+                                      ? "مسودة"
+                                      : "Draft"
+                                    : invStatus}
+                            </Text>
+                          </View>
+                        </View>
+                        <Text style={S.invoiceArrow}>{isRTL ? "‹" : "›"}</Text>
+                      </Pressable>
+                    );
+                  })
+                )}
+              </View>
+            )}
           </>
         ) : (
           /* ──────────────────────── CHANGE PLAN TAB ──────────────────────── */
           <>
             {/* Billing toggle */}
             <View style={S.toggleRow}>
-              <Pressable
-                style={{ flex: 1 }}
-                onPress={() => setIsAnnual(false)}
-              >
+              <Pressable style={{ flex: 1 }} onPress={() => setIsAnnual(false)}>
                 {!isAnnual ? (
                   <LinearGradient
                     colors={[C.orange, "#FB923C"]}
@@ -587,10 +772,7 @@ export default function PlansScreen() {
                 )}
               </Pressable>
 
-              <Pressable
-                style={{ flex: 1 }}
-                onPress={() => setIsAnnual(true)}
-              >
+              <Pressable style={{ flex: 1 }} onPress={() => setIsAnnual(true)}>
                 {isAnnual ? (
                   <LinearGradient
                     colors={[C.orange, "#FB923C"]}
@@ -655,7 +837,10 @@ export default function PlansScreen() {
 
               const gradKey = idx % 3;
               const accent = PLAN_ACCENT[gradKey] || C.violet;
-              const gradColors = PLAN_GRADIENT[gradKey] || ["#EDE9FE", "#DDD6FE"];
+              const gradColors = PLAN_GRADIENT[gradKey] || [
+                "#EDE9FE",
+                "#DDD6FE",
+              ];
               const emoji = PLAN_EMOJI[idx % 3];
 
               return (
@@ -696,9 +881,7 @@ export default function PlansScreen() {
                       style={[
                         S.planCard,
                         {
-                          borderColor: isCurrent
-                            ? accent + "66"
-                            : "#F3F4F6",
+                          borderColor: isCurrent ? accent + "66" : "#F3F4F6",
                         },
                       ]}
                     >
@@ -843,9 +1026,7 @@ function PlanCardContent({
               ),
             )}
             {(plan.max_kids || 0) > 5 && (
-              <View
-                style={[S.kidsPill, { backgroundColor: `${accent}20` }]}
-              >
+              <View style={[S.kidsPill, { backgroundColor: `${accent}20` }]}>
                 <Text
                   style={{ fontSize: 11, fontWeight: "800", color: accent }}
                 >
@@ -860,9 +1041,7 @@ function PlanCardContent({
           <Text style={[S.planPrice, { color: accent }]}>
             ${price.toFixed(2)}
           </Text>
-          <Text style={[S.planPeriod, { color: `${accent}99` }]}>
-            {period}
-          </Text>
+          <Text style={[S.planPeriod, { color: `${accent}99` }]}>{period}</Text>
         </View>
       </View>
     </>
@@ -1035,6 +1214,22 @@ const S = StyleSheet.create({
     alignItems: "center",
   },
   actionBtnText: { fontSize: 14, fontWeight: "800" },
+  cancelBtn: {
+    borderRadius: 16,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    alignItems: "center",
+    backgroundColor: C.redSoft,
+    borderWidth: 1,
+    borderColor: "rgba(220,38,38,0.15)",
+  },
+  cancelBtnText: { fontSize: 14, fontWeight: "800", color: C.red },
+  cancelBtnSub: {
+    fontSize: 11,
+    fontWeight: "600",
+    color: C.inkFaint,
+    marginTop: 2,
+  },
   upgradeBtn: { borderRadius: 20, overflow: "hidden" },
   upgradeBtnGrad: {
     paddingVertical: 16,
@@ -1182,5 +1377,93 @@ const S = StyleSheet.create({
     color: C.inkFaint,
     textAlign: "center",
     marginTop: 12,
+  },
+
+  // Section card (payment methods, invoices)
+  sectionCard: {
+    backgroundColor: C.white,
+    borderRadius: 22,
+    padding: 20,
+    marginTop: 14,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 10,
+    elevation: 3,
+  },
+  sectionTitle: {
+    fontSize: 15,
+    fontWeight: "900",
+    color: C.ink,
+    marginBottom: 14,
+  },
+  emptyText: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: C.inkFaint,
+    textAlign: "center",
+    paddingVertical: 12,
+  },
+
+  // Payment method row
+  pmRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: "#F5F5F4",
+  },
+  pmIconWrap: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    backgroundColor: "#F5F5F4",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  pmBrand: { fontSize: 14, fontWeight: "800", color: C.ink },
+  pmExpiry: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: C.inkFaint,
+    marginTop: 2,
+  },
+  defaultBadge: {
+    backgroundColor: C.greenSoft,
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
+  defaultBadgeText: { fontSize: 10, fontWeight: "800", color: C.green },
+
+  // Invoice row
+  invoiceRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: "#F5F5F4",
+  },
+  invoiceNumber: { fontSize: 13, fontWeight: "800", color: C.ink },
+  invoiceDate: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: C.inkFaint,
+    marginTop: 2,
+  },
+  invoiceAmount: { fontSize: 14, fontWeight: "800", color: C.ink },
+  invoiceStatusBadge: {
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
+  invoiceStatusText: { fontSize: 10, fontWeight: "800" },
+  invoiceArrow: {
+    fontSize: 20,
+    fontWeight: "600",
+    color: C.inkFaint,
+    marginLeft: 4,
   },
 });

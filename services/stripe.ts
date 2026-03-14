@@ -23,6 +23,8 @@ interface CheckoutResult {
   ephemeralKey: string;
   customer: string;
   subscriptionId: string;
+  isSetupIntent?: boolean;
+  trialDays?: number;
 }
 
 export const stripeService = {
@@ -70,9 +72,8 @@ export const stripeService = {
     checkout: CheckoutResult,
     merchantName: string = "Athkari",
   ): Promise<{ error: any }> {
-    const { error } = await initPaymentSheet({
+    const sheetParams: any = {
       merchantDisplayName: merchantName,
-      paymentIntentClientSecret: checkout.paymentIntent,
       customerEphemeralKeySecret: checkout.ephemeralKey,
       customerId: checkout.customer,
       allowsDelayedPaymentMethods: false,
@@ -85,7 +86,16 @@ export const stripeService = {
       applePay: {
         merchantCountryCode: "US",
       },
-    });
+    };
+
+    // Use setupIntentClientSecret for trials, paymentIntentClientSecret for immediate charge
+    if (checkout.isSetupIntent) {
+      sheetParams.setupIntentClientSecret = checkout.paymentIntent;
+    } else {
+      sheetParams.paymentIntentClientSecret = checkout.paymentIntent;
+    }
+
+    const { error } = await initPaymentSheet(sheetParams);
 
     return { error };
   },
@@ -113,9 +123,7 @@ export const stripeService = {
   /**
    * Full purchase flow: create checkout -> init payment sheet -> present
    */
-  async purchasePlan(
-    params: CreateCheckoutParams,
-  ): Promise<{
+  async purchasePlan(params: CreateCheckoutParams): Promise<{
     success: boolean;
     subscriptionId?: string;
     error?: string;
@@ -206,5 +214,117 @@ export const stripeService = {
     );
 
     return res.ok;
+  },
+
+  /**
+   * Fetch invoices for a family via Edge Function
+   */
+  async getInvoices(familyId: string): Promise<{
+    invoices: Array<{
+      id: string;
+      number: string | null;
+      amount: number;
+      currency: string;
+      status: string;
+      created: number;
+      period_start: number;
+      period_end: number;
+      invoice_pdf: string | null;
+      hosted_invoice_url: string | null;
+    }>;
+  }> {
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+
+    const res = await fetch(
+      `${SUPABASE_URL}/functions/v1/manage-subscription`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session?.access_token || SUPABASE_ANON_KEY}`,
+        },
+        body: JSON.stringify({
+          action: "invoices",
+          family_id: familyId,
+        }),
+      },
+    );
+
+    if (!res.ok) return { invoices: [] };
+    return res.json();
+  },
+
+  /**
+   * Fetch payment methods for a family via Edge Function
+   */
+  async getPaymentMethods(familyId: string): Promise<{
+    payment_methods: Array<{
+      id: string;
+      brand: string;
+      last4: string;
+      exp_month: number;
+      exp_year: number;
+      is_default: boolean;
+    }>;
+    default_payment_method: string | null;
+  }> {
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+
+    const res = await fetch(
+      `${SUPABASE_URL}/functions/v1/manage-subscription`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session?.access_token || SUPABASE_ANON_KEY}`,
+        },
+        body: JSON.stringify({
+          action: "payment_methods",
+          family_id: familyId,
+        }),
+      },
+    );
+
+    if (!res.ok) return { payment_methods: [], default_payment_method: null };
+    return res.json();
+  },
+
+  /**
+   * Fetch upcoming invoice for a family via Edge Function
+   */
+  async getUpcomingInvoice(familyId: string): Promise<{
+    upcoming_invoice: {
+      amount: number;
+      currency: string;
+      next_payment_date: number | null;
+      period_start: number;
+      period_end: number;
+    } | null;
+  }> {
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+
+    const res = await fetch(
+      `${SUPABASE_URL}/functions/v1/manage-subscription`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session?.access_token || SUPABASE_ANON_KEY}`,
+        },
+        body: JSON.stringify({
+          action: "upcoming_invoice",
+          family_id: familyId,
+        }),
+      },
+    );
+
+    if (!res.ok) return { upcoming_invoice: null };
+    return res.json();
   },
 };

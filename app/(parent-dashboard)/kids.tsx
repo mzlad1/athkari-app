@@ -7,6 +7,7 @@ import {
   StyleSheet,
   Modal,
   Animated,
+  RefreshControl,
 } from "react-native";
 import React, { useState, useCallback, useEffect, useRef } from "react";
 import { useRouter } from "expo-router";
@@ -24,6 +25,7 @@ import { authService } from "@/services/auth";
 import { supabase } from "@/services/supabase";
 import { LinearGradient } from "expo-linear-gradient";
 import { useFeatureFlags } from "@/hooks/useFeatureFlags";
+import { usePlans } from "@/hooks/usePlans";
 import QRCode from "react-native-qrcode-svg";
 
 /* ── Per-kid card with independent stats ── */
@@ -233,10 +235,16 @@ function KidCardStats({
             </Text>
             <Text style={{ fontSize: 12, color: "#7C3AED", fontWeight: "700" }}>
               {kid.preferred_voice_profile_id
-                ? (voiceProfiles.find((p: any) => p.id === kid.preferred_voice_profile_id)?.name_ar ||
-                   voiceProfiles.find((p: any) => p.id === kid.preferred_voice_profile_id)?.name_en ||
-                   (isRTL ? "مخصص" : "Custom"))
-                : (isRTL ? "افتراضي" : "Default")}
+                ? voiceProfiles.find(
+                    (p: any) => p.id === kid.preferred_voice_profile_id,
+                  )?.name_ar ||
+                  voiceProfiles.find(
+                    (p: any) => p.id === kid.preferred_voice_profile_id,
+                  )?.name_en ||
+                  (isRTL ? "مخصص" : "Custom")
+                : isRTL
+                  ? "افتراضي"
+                  : "Default"}
               {" ›"}
             </Text>
           </Pressable>
@@ -283,17 +291,22 @@ function KidCardStats({
                   style={{
                     padding: 12,
                     borderRadius: 10,
-                    backgroundColor:
-                      !kid.preferred_voice_profile_id
-                        ? "rgba(124,58,237,0.25)"
-                        : "rgba(255,255,255,0.06)",
+                    backgroundColor: !kid.preferred_voice_profile_id
+                      ? "rgba(124,58,237,0.25)"
+                      : "rgba(255,255,255,0.06)",
                   }}
                   onPress={() => {
                     onUpdateVoiceProfile(kid.id, null);
                     setShowVoicePicker(false);
                   }}
                 >
-                  <Text style={{ color: "#F0EAD6", fontSize: 14, fontWeight: "600" }}>
+                  <Text
+                    style={{
+                      color: "#F0EAD6",
+                      fontSize: 14,
+                      fontWeight: "600",
+                    }}
+                  >
                     {isRTL ? "الافتراضي (حسب الذكر)" : "Default (per dhikr)"}
                   </Text>
                 </Pressable>
@@ -315,10 +328,18 @@ function KidCardStats({
                       setShowVoicePicker(false);
                     }}
                   >
-                    <Text style={{ color: "#F0EAD6", fontSize: 14, fontWeight: "600" }}>
+                    <Text
+                      style={{
+                        color: "#F0EAD6",
+                        fontSize: 14,
+                        fontWeight: "600",
+                      }}
+                    >
                       {p.name_ar}
                     </Text>
-                    <Text style={{ color: "#94A3B8", fontSize: 11, marginTop: 2 }}>
+                    <Text
+                      style={{ color: "#94A3B8", fontSize: 11, marginTop: 2 }}
+                    >
                       {p.name_en}
                     </Text>
                   </Pressable>
@@ -364,6 +385,7 @@ export default function KidsScreen() {
   const isRTL = lang === "ar";
   const t = T[lang];
   const flags = useFeatureFlags();
+  const { plans } = usePlans();
   const { profiles: voiceProfiles } = useVoiceProfiles();
 
   const [selectedKid, setSelectedKid] = useState(0);
@@ -546,7 +568,21 @@ export default function KidsScreen() {
     };
   }, [qrExpiresAt, qrKid, generateQR]);
 
+  const currentPlan = plans.find((p) => p.id === family?.plan_id);
+  const maxKids = family?.max_kids ?? currentPlan?.max_kids ?? 1;
+  const canAddKid = kids.length < maxKids;
+
   const handleAddKid = async () => {
+    if (!canAddKid) {
+      showToast(
+        isRTL
+          ? `وصلت للحد الأقصى (${maxKids} أطفال). يرجى ترقية خطتك.`
+          : `Kid limit reached (${maxKids}). Please upgrade your plan.`,
+        "error",
+      );
+      setShowAddKid(false);
+      return;
+    }
     if (
       !newKidName ||
       !newKidAge ||
@@ -689,7 +725,10 @@ export default function KidsScreen() {
     }
   };
 
-  const handleUpdateVoiceProfile = async (kidId: string, profileId: number | null) => {
+  const handleUpdateVoiceProfile = async (
+    kidId: string,
+    profileId: number | null,
+  ) => {
     try {
       const { error } = await supabase
         .from("kids")
@@ -698,7 +737,10 @@ export default function KidsScreen() {
       if (error) throw error;
       await refreshKids();
     } catch {
-      showToast(isRTL ? "فشل تحديث الصوت" : "Failed to update voice preference", "error");
+      showToast(
+        isRTL ? "فشل تحديث الصوت" : "Failed to update voice preference",
+        "error",
+      );
     }
   };
 
@@ -1504,6 +1546,16 @@ export default function KidsScreen() {
       <ScrollView
         style={{ flex: 1, paddingHorizontal: 20, paddingTop: 16 }}
         showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={false}
+            onRefresh={async () => {
+              await refreshKids();
+            }}
+            tintColor="#7C3AED"
+            colors={["#7C3AED"]}
+          />
+        }
       >
         {/* OTP Banner */}
         {activeOtp && (
@@ -1581,8 +1633,17 @@ export default function KidsScreen() {
 
         {/* Add Kid */}
         <Pressable
-          style={styles.addKidDashed}
+          style={[styles.addKidDashed, !canAddKid && { opacity: 0.5 }]}
           onPress={() => {
+            if (!canAddKid) {
+              showToast(
+                isRTL
+                  ? `وصلت للحد الأقصى (${maxKids} أطفال). يرجى ترقية خطتك.`
+                  : `Kid limit reached (${maxKids}). Please upgrade your plan.`,
+                "error",
+              );
+              return;
+            }
             setShowAddKid(true);
             setNewKidName("");
             setNewKidAge("");
@@ -1590,7 +1651,13 @@ export default function KidsScreen() {
           }}
         >
           <Text style={{ fontSize: 28 }}>➕</Text>
-          <Text style={styles.addKidDashedText}>{t.addKidBtn}</Text>
+          <Text style={styles.addKidDashedText}>
+            {canAddKid
+              ? t.addKidBtn
+              : isRTL
+                ? `الحد الأقصى ${maxKids} أطفال`
+                : `Limit: ${maxKids} kids`}
+          </Text>
         </Pressable>
 
         <View style={{ height: 60 }} />

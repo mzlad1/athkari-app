@@ -16,8 +16,10 @@ CREATE TABLE public.adhkar (
   review_note text,
   created_at timestamp with time zone DEFAULT now(),
   updated_at timestamp with time zone DEFAULT now(),
+  default_voice_profile_id bigint,
   CONSTRAINT adhkar_pkey PRIMARY KEY (id),
-  CONSTRAINT adhkar_category_id_fkey FOREIGN KEY (category_id) REFERENCES public.categories(id)
+  CONSTRAINT adhkar_category_id_fkey FOREIGN KEY (category_id) REFERENCES public.categories(id),
+  CONSTRAINT adhkar_default_voice_profile_id_fkey FOREIGN KEY (default_voice_profile_id) REFERENCES public.voice_profiles(id)
 );
 CREATE TABLE public.admin_users (
   id bigint NOT NULL DEFAULT nextval('admin_users_id_seq'::regclass),
@@ -191,6 +193,9 @@ CREATE TABLE public.families (
   region text,
   timezone text,
   isp text,
+  stripe_subscription_id text,
+  current_period_end timestamp with time zone,
+  max_kids integer NOT NULL DEFAULT 1,
   CONSTRAINT families_pkey PRIMARY KEY (id),
   CONSTRAINT families_auth_user_id_fkey FOREIGN KEY (auth_user_id) REFERENCES auth.users(id),
   CONSTRAINT families_plan_id_fkey FOREIGN KEY (plan_id) REFERENCES public.plans(id),
@@ -275,10 +280,13 @@ CREATE TABLE public.kids (
   seasonal_custom_items jsonb DEFAULT '[]'::jsonb,
   qr_token text UNIQUE,
   qr_expires_at timestamp with time zone,
+  preferred_voice_profile_id bigint,
+  avatar_url text,
   CONSTRAINT kids_pkey PRIMARY KEY (id),
   CONSTRAINT kids_family_id_fkey FOREIGN KEY (family_id) REFERENCES public.families(id),
   CONSTRAINT fk_kids_wird_template FOREIGN KEY (wird_template_id) REFERENCES public.wird_templates(id),
-  CONSTRAINT kids_referred_by_fkey FOREIGN KEY (referred_by) REFERENCES public.kids(id)
+  CONSTRAINT kids_referred_by_fkey FOREIGN KEY (referred_by) REFERENCES public.kids(id),
+  CONSTRAINT kids_preferred_voice_profile_id_fkey FOREIGN KEY (preferred_voice_profile_id) REFERENCES public.voice_profiles(id)
 );
 CREATE TABLE public.leaderboard_snapshots (
   id integer NOT NULL DEFAULT nextval('leaderboard_snapshots_id_seq'::regclass),
@@ -416,6 +424,9 @@ CREATE TABLE public.voice_files (
   file_size_bytes integer,
   qa_status text DEFAULT 'pending'::text,
   generated_at timestamp with time zone DEFAULT now(),
+  storage_path text,
+  public_url text,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
   CONSTRAINT voice_files_pkey PRIMARY KEY (id),
   CONSTRAINT voice_files_profile_id_fkey FOREIGN KEY (profile_id) REFERENCES public.voice_profiles(id),
   CONSTRAINT voice_files_adhkar_id_fkey FOREIGN KEY (adhkar_id) REFERENCES public.adhkar(id)
@@ -424,14 +435,11 @@ CREATE TABLE public.voice_profiles (
   id bigint NOT NULL DEFAULT nextval('voice_profiles_id_seq'::regclass),
   name_en text NOT NULL,
   name_ar text NOT NULL,
-  style text DEFAULT 'Calm'::text,
-  speed numeric DEFAULT 1.0,
-  status USER-DEFINED DEFAULT 'processing'::voice_status,
-  sample_url text,
-  category_assignments jsonb DEFAULT '[]'::jsonb,
-  total_files integer DEFAULT 0,
-  cost_estimate numeric DEFAULT 0,
   created_at timestamp with time zone DEFAULT now(),
+  source text NOT NULL DEFAULT 'upload'::text CHECK (source = ANY (ARRAY['upload'::text, 'elevenlabs'::text])),
+  elevenlabs_voice_id text,
+  is_active boolean NOT NULL DEFAULT true,
+  display_order integer NOT NULL DEFAULT 0,
   CONSTRAINT voice_profiles_pkey PRIMARY KEY (id)
 );
 CREATE TABLE public.wird_logs (

@@ -7,6 +7,7 @@ import {
   StyleSheet,
   Modal,
   TextInput,
+  RefreshControl,
 } from "react-native";
 import { useState, useEffect } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -353,6 +354,16 @@ export default function SettingsScreen() {
       <ScrollView
         style={{ flex: 1, paddingHorizontal: 20, paddingTop: 16 }}
         showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={false}
+            onRefresh={async () => {
+              await refreshFamily();
+            }}
+            tintColor="#7C3AED"
+            colors={["#7C3AED"]}
+          />
+        }
       >
         {/* ━━━ PROFILE DETAILS ━━━ */}
         <View style={styles.card}>

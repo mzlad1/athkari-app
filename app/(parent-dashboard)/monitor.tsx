@@ -1,4 +1,11 @@
-import { View, Text, ScrollView, Pressable, StyleSheet } from "react-native";
+import {
+  View,
+  Text,
+  ScrollView,
+  Pressable,
+  StyleSheet,
+  RefreshControl,
+} from "react-native";
 import { useState, useEffect, useCallback } from "react";
 import { COLORS } from "@/constants/theme";
 import { T } from "@/constants/translations";
@@ -210,6 +217,19 @@ export default function MonitorScreen() {
       <ScrollView
         style={{ flex: 1, paddingHorizontal: 20, paddingTop: 16 }}
         showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={false}
+            onRefresh={async () => {
+              if (kidId) {
+                fetchWeeklyData(kidId);
+                fetchCatProgress(kidId);
+              }
+            }}
+            tintColor="#7C3AED"
+            colors={["#7C3AED"]}
+          />
+        }
       >
         {/* ━━━ 6-STAT GRID ━━━ */}
         <View style={styles.statGrid}>

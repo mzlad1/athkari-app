@@ -40,7 +40,14 @@ serve(async (req) => {
     );
 
     const body = await req.json();
-    const { family_id, plan_id, billing_cycle, price_amount, promo_code, email } = body;
+    const {
+      family_id,
+      plan_id,
+      billing_cycle,
+      price_amount,
+      promo_code,
+      email,
+    } = body;
 
     if (!family_id || !plan_id || !billing_cycle || !price_amount || !email) {
       return new Response(
@@ -73,7 +80,16 @@ serve(async (req) => {
         .eq("id", family_id);
     }
 
-    // 2. Get or create the Stripe Price
+    // 2. Get plan details (always needed for trial_days)
+    const { data: plan } = await supabase
+      .from("plans")
+      .select("name_en, name_ar, max_kids, trial_days")
+      .eq("id", plan_id)
+      .single();
+
+    const trialDays = plan?.trial_days ?? 0;
+
+    // 3. Get or create the Stripe Price
     //    We look up by product metadata to find existing, or create new
     const priceInCents = Math.round(price_amount * 100);
     const interval = billing_cycle === "annual" ? "year" : "month";
@@ -88,13 +104,6 @@ serve(async (req) => {
     );
 
     if (!product) {
-      // Get plan name from DB
-      const { data: plan } = await supabase
-        .from("plans")
-        .select("name_en, name_ar, max_kids")
-        .eq("id", plan_id)
-        .single();
-
       product = await stripe.products.create({
         name: plan?.name_en || `Athkari Plan ${plan_id}`,
         description: `${plan?.name_en} - Up to ${plan?.max_kids} kids`,
@@ -128,7 +137,7 @@ serve(async (req) => {
       });
     }
 
-    // 3. Check for promo code / coupon
+    // 4. Check for promo code / coupon
     let discountParams: any = {};
     if (promo_code) {
       const { data: promo } = await supabase
@@ -153,11 +162,10 @@ serve(async (req) => {
       }
     }
 
-    // 4. Create Subscription with trial
-    const subscription = await stripe.subscriptions.create({
+    // 5. Create Subscription (with trial if plan has trial_days > 0)
+    const subscriptionParams: any = {
       customer: customerId,
       items: [{ price: price.id }],
-      trial_period_days: 7,
       payment_behavior: "default_incomplete",
       payment_settings: {
         save_default_payment_method: "on_subscription",
@@ -169,7 +177,13 @@ serve(async (req) => {
         billing_cycle,
       },
       ...discountParams,
-    });
+    };
+
+    if (trialDays > 0) {
+      subscriptionParams.trial_period_days = trialDays;
+    }
+
+    const subscription = await stripe.subscriptions.create(subscriptionParams);
 
     // 5. Create ephemeral key for Payment Sheet
     const ephemeralKey = await stripe.ephemeralKeys.create(
@@ -181,10 +195,10 @@ serve(async (req) => {
     const invoice = subscription.latest_invoice as any;
     const paymentIntent = invoice?.payment_intent as any;
 
-    // If trial (no immediate charge), create a SetupIntent instead
+    // If trial (no immediate charge), create a SetupIntent to collect payment method
     let clientSecret: string;
+    let isSetupIntent = false;
     if (!paymentIntent) {
-      // Trial subscription — create SetupIntent to collect payment method
       const setupIntent = await stripe.setupIntents.create({
         customer: customerId,
         payment_method_types: ["card"],
@@ -194,22 +208,27 @@ serve(async (req) => {
         },
       });
       clientSecret = setupIntent.client_secret!;
+      isSetupIntent = true;
     } else {
       clientSecret = paymentIntent.client_secret;
     }
 
     // 7. Update family with subscription ID
+    const now = new Date();
     await supabase
       .from("families")
       .update({
         stripe_subscription_id: subscription.id,
         plan_id,
         billing_cycle,
-        billing_status: "trial",
-        trial_start: new Date().toISOString(),
-        trial_end: new Date(
-          Date.now() + 7 * 24 * 60 * 60 * 1000,
-        ).toISOString(),
+        billing_status: trialDays > 0 ? "trial" : "active",
+        trial_start: trialDays > 0 ? now.toISOString() : null,
+        trial_end:
+          trialDays > 0
+            ? new Date(
+                now.getTime() + trialDays * 24 * 60 * 60 * 1000,
+              ).toISOString()
+            : null,
       })
       .eq("id", family_id);
 
@@ -219,6 +238,8 @@ serve(async (req) => {
         ephemeralKey: ephemeralKey.secret,
         customer: customerId,
         subscriptionId: subscription.id,
+        isSetupIntent,
+        trialDays,
       }),
       {
         headers: {

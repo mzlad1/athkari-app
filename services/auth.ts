@@ -129,11 +129,7 @@ export const authService = {
         auth_user_id: authData.user?.id,
         parent_name: name,
         parent_email: email,
-        billing_status: "trial",
-        trial_start: new Date().toISOString().split("T")[0],
-        trial_end: new Date(Date.now() + 7 * 86400000)
-          .toISOString()
-          .split("T")[0],
+        billing_status: "churned",
         referral_code: Math.random().toString(36).substring(2, 8).toUpperCase(),
         country: geo.country,
         device_type: Platform.OS || "unknown",

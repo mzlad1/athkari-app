@@ -51,3 +51,15 @@ verify_jwt = false
 
 [functions.kid-notify]
 verify_jwt = false
+
+[functions.create-payment-intent]
+verify_jwt = false
+
+[functions.manage-subscription]
+verify_jwt = false
+
+[functions.stripe-webhook]
+verify_jwt = false
+
+[functions.subscription-webhook]
+verify_jwt = false

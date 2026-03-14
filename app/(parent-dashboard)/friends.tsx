@@ -7,6 +7,7 @@ import {
   StyleSheet,
   Modal,
   Dimensions,
+  RefreshControl,
 } from "react-native";
 import { useState, useEffect, useCallback } from "react";
 import { useLang } from "@/contexts/LangContext";
@@ -197,6 +198,16 @@ export default function FriendsScreen() {
       <ScrollView
         style={{ flex: 1, paddingHorizontal: 20, paddingTop: 16 }}
         showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={false}
+            onRefresh={async () => {
+              await refreshFriendsList();
+            }}
+            tintColor="#7C3AED"
+            colors={["#7C3AED"]}
+          />
+        }
       >
         {/* ── Friend Code Hero Card ── */}
         {kid?.friend_code && (
