@@ -1,10 +1,7 @@
 import { Alert, Platform } from "react-native";
-import {
-  initPaymentSheet,
-  presentPaymentSheet,
-  confirmPaymentSheetPayment,
-} from "@stripe/stripe-react-native";
 import { supabase } from "./supabase";
+
+// Expo Go stub — Stripe native SDK not available
 
 const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL!;
 const SUPABASE_ANON_KEY = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY!;
@@ -69,55 +66,18 @@ export const stripeService = {
    * Initialize Stripe Payment Sheet with server-side data
    */
   async initializePaymentSheet(
-    checkout: CheckoutResult,
-    merchantName: string = "Athkari",
+    _checkout: CheckoutResult,
+    _merchantName: string = "Athkari",
   ): Promise<{ error: any }> {
-    const sheetParams: any = {
-      merchantDisplayName: merchantName,
-      customerEphemeralKeySecret: checkout.ephemeralKey,
-      customerId: checkout.customer,
-      allowsDelayedPaymentMethods: false,
-      defaultBillingDetails: { name: merchantName },
-      style: "automatic",
-      googlePay: {
-        merchantCountryCode: "US",
-        testEnv: true,
-      },
-      applePay: {
-        merchantCountryCode: "US",
-      },
-    };
-
-    // Use setupIntentClientSecret for trials, paymentIntentClientSecret for immediate charge
-    if (checkout.isSetupIntent) {
-      sheetParams.setupIntentClientSecret = checkout.paymentIntent;
-    } else {
-      sheetParams.paymentIntentClientSecret = checkout.paymentIntent;
-    }
-
-    const { error } = await initPaymentSheet(sheetParams);
-
-    return { error };
+    return { error: { message: "Stripe not available in Expo Go" } };
   },
 
-  /**
-   * Present Stripe Payment Sheet to collect payment
-   */
   async presentPaymentSheet(): Promise<{
     success: boolean;
     error?: any;
     cancelled?: boolean;
   }> {
-    const { error } = await presentPaymentSheet();
-
-    if (error) {
-      if (error.code === "Canceled") {
-        return { success: false, cancelled: true };
-      }
-      return { success: false, error };
-    }
-
-    return { success: true };
+    return { success: false, error: { message: "Stripe not available in Expo Go" } };
   },
 
   /**

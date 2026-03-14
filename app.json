@@ -33,14 +33,7 @@
         }
       ],
       "expo-asset",
-      "expo-localization",
-      [
-        "@stripe/stripe-react-native",
-        {
-          "merchantIdentifier": "merchant.com.athkari.app",
-          "enableGooglePay": true
-        }
-      ]
+      "expo-localization"
     ],
     "extra": {
       "eas": {

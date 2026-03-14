@@ -1,12 +1,9 @@
-import Purchases, { PurchasesPackage } from "react-native-purchases";
 import { Platform } from "react-native";
 import { stripeService } from "./stripe";
 import { supabase } from "./supabase";
 
-const RC_API_KEY =
-  Platform.OS === "ios"
-    ? process.env.EXPO_PUBLIC_REVENUECAT_IOS_KEY!
-    : process.env.EXPO_PUBLIC_REVENUECAT_ANDROID_KEY!;
+// Expo Go stub — RevenueCat native SDK not available
+type PurchasesPackage = any;
 
 export type PaymentMethod = "stripe" | "revenuecat";
 
@@ -24,38 +21,19 @@ export const subscriptionService = {
    * RevenueCat — native iOS/Android IAP
    * ──────────────────────────────────────────────────────────────────── */
 
-  /** Initialize RevenueCat */
-  async initRevenueCat(userId: string) {
-    try {
-      Purchases.configure({ apiKey: RC_API_KEY, appUserID: userId });
-    } catch (e) {
-      console.warn("RevenueCat init failed:", e);
-    }
+  /** Initialize RevenueCat (stub for Expo Go) */
+  async initRevenueCat(_userId: string) {
+    console.warn("RevenueCat not available in Expo Go");
   },
 
-  /** Get available RevenueCat packages */
+  /** Get available RevenueCat packages (stub for Expo Go) */
   async getOfferings(): Promise<PurchasesPackage[]> {
-    try {
-      const offerings = await Purchases.getOfferings();
-      return offerings.current?.availablePackages || [];
-    } catch (e) {
-      console.error("RevenueCat offerings error:", e);
-      return [];
-    }
+    return [];
   },
 
-  /** Purchase a RevenueCat package (native IAP) */
-  async purchaseRevenueCat(pkg: PurchasesPackage) {
-    try {
-      const { customerInfo } = await Purchases.purchasePackage(pkg);
-      return {
-        success: true,
-        isActive: customerInfo.entitlements.active["premium"] !== undefined,
-      };
-    } catch (e: any) {
-      if (e.userCancelled) return { success: false, cancelled: true };
-      throw e;
-    }
+  /** Purchase a RevenueCat package (stub for Expo Go) */
+  async purchaseRevenueCat(_pkg: PurchasesPackage) {
+    return { success: false, cancelled: false };
   },
 
   /* ──────────────────────────────────────────────────────────────────────
@@ -134,14 +112,9 @@ export const subscriptionService = {
    * Subscription status
    * ──────────────────────────────────────────────────────────────────── */
 
-  /** Check if user has active subscription via RevenueCat */
+  /** Check if user has active subscription (stub for Expo Go) */
   async checkSubscriptionRC(): Promise<boolean> {
-    try {
-      const customerInfo = await Purchases.getCustomerInfo();
-      return customerInfo.entitlements.active["premium"] !== undefined;
-    } catch {
-      return false;
-    }
+    return false;
   },
 
   /** Check subscription status from DB */
@@ -186,14 +159,9 @@ export const subscriptionService = {
     };
   },
 
-  /** Restore purchases (RevenueCat) */
+  /** Restore purchases (stub for Expo Go) */
   async restore(): Promise<boolean> {
-    try {
-      const customerInfo = await Purchases.restorePurchases();
-      return customerInfo.entitlements.active["premium"] !== undefined;
-    } catch {
-      return false;
-    }
+    return false;
   },
 
   /** Cancel subscription via Stripe */

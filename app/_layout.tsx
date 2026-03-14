@@ -9,10 +9,6 @@ import { kidProgressService } from "@/services/kid-progress";
 import { levelsService } from "@/services/levels";
 import { AppGate } from "@/components/AppGate";
 import { SplashScreen } from "@/components/SplashScreen";
-import { StripeProvider } from "@stripe/stripe-react-native";
-
-const STRIPE_PUBLISHABLE_KEY =
-  process.env.EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY || "";
 
 function RootNavigator() {
   const { session, loading, family, kids, activeKid, role } = useAuth();
@@ -126,15 +122,10 @@ function RootNavigator() {
 
 export default function RootLayout() {
   return (
-    <StripeProvider
-      publishableKey={STRIPE_PUBLISHABLE_KEY}
-      merchantIdentifier="merchant.com.athkari.app"
-    >
-      <LangProvider>
-        <AuthProvider>
-          <RootNavigator />
-        </AuthProvider>
-      </LangProvider>
-    </StripeProvider>
+    <LangProvider>
+      <AuthProvider>
+        <RootNavigator />
+      </AuthProvider>
+    </LangProvider>
   );
 }
