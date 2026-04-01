@@ -1,6 +1,7 @@
 import { Stack, router, useSegments } from "expo-router";
 import { StatusBar } from "expo-status-bar";
-import { useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
+import { View, Text, ScrollView, StyleSheet } from "react-native";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import { LangProvider } from "@/contexts/LangContext";
 import { usePushNotifications } from "@/hooks/usePushNotifications";
@@ -9,6 +10,53 @@ import { kidProgressService } from "@/services/kid-progress";
 import { levelsService } from "@/services/levels";
 import { AppGate } from "@/components/AppGate";
 import { SplashScreen } from "@/components/SplashScreen";
+
+// Error boundary to catch crashes and show them on screen
+class ErrorBoundary extends React.Component<
+  { children: React.ReactNode },
+  { hasError: boolean; error: Error | null }
+> {
+  constructor(props: { children: React.ReactNode }) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error: Error) {
+    return { hasError: true, error };
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <View style={errStyles.container}>
+          <Text style={errStyles.title}>App Crash Caught!</Text>
+          <ScrollView style={errStyles.scroll}>
+            <Text style={errStyles.error}>
+              {this.state.error?.message || "Unknown error"}
+            </Text>
+            <Text style={errStyles.stack}>
+              {this.state.error?.stack || "No stack trace"}
+            </Text>
+          </ScrollView>
+        </View>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+const errStyles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: "#1a0000",
+    padding: 20,
+    paddingTop: 60,
+  },
+  title: { color: "#ff4444", fontSize: 22, fontWeight: "bold", marginBottom: 16 },
+  scroll: { flex: 1 },
+  error: { color: "#ff8888", fontSize: 16, marginBottom: 12 },
+  stack: { color: "#ff666688", fontSize: 11, fontFamily: "monospace" },
+});
 
 function RootNavigator() {
   const { session, loading, family, kids, activeKid, role } = useAuth();
@@ -122,10 +170,12 @@ function RootNavigator() {
 
 export default function RootLayout() {
   return (
-    <LangProvider>
-      <AuthProvider>
-        <RootNavigator />
-      </AuthProvider>
-    </LangProvider>
+    <ErrorBoundary>
+      <LangProvider>
+        <AuthProvider>
+          <RootNavigator />
+        </AuthProvider>
+      </LangProvider>
+    </ErrorBoundary>
   );
 }

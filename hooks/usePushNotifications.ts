@@ -5,20 +5,20 @@ import Constants from "expo-constants";
 import { notificationService } from "@/services/notifications";
 import { useAuth } from "@/contexts/AuthContext";
 
-Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowAlert: true,
-    shouldPlaySound: true,
-    shouldSetBadge: true,
-    shouldShowInForeground: true,
-  }),
-});
-
 export function usePushNotifications() {
   const { family, kids, activeKid, role } = useAuth();
   const tokenRef = useRef<string | null>(null);
 
   useEffect(() => {
+    Notifications.setNotificationHandler({
+      handleNotification: async () => ({
+        shouldShowAlert: true,
+        shouldPlaySound: true,
+        shouldSetBadge: true,
+        shouldShowInForeground: true,
+      }),
+    });
+
     registerForPushNotifications();
   }, [family?.id, kids?.length, activeKid?.id, role]);
 
